@@ -38,10 +38,6 @@ func HandleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 	mac.Write([]byte(request.Body))
 	expectedMAC := mac.Sum(nil)
 	expectedHubSignature := fmt.Sprintf("sha1=%s", hex.EncodeToString(expectedMAC))
-	//fmt.Println("Headers:")
-	//for key, value := range request.Headers {
-	//	fmt.Printf("    %s: %s\n", key, value)
-	//}
 
 	if request.Headers["X-Hub-Signature"] != expectedHubSignature {
 		return events.APIGatewayProxyResponse{Body: "Invalid Signature", StatusCode: 400}, nil
@@ -81,19 +77,24 @@ func HandleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 		fmt.Println(e)
 	}
 
-	duration := t2.Sub(t1).Round(time.Second)
-	seconds := duration.Seconds()
+	duration := t2.Sub(t1).Round(time.Hour)
+	hours := int(duration.Hours())
+	if hours < 1 {
+		hours = 1
+	}
+	days := hours / 24
+	if days < 1 {
+		days = 1
+	}
 
-	fmt.Printf("PR open for %d seconds\n", seconds)
+	fmt.Printf("PR open for %d days\n", days)
 	size := hook.PullRequest.Additions + hook.PullRequest.Deletions
 	fmt.Printf("PR had %d lines added/removed\n", size)
 	fmt.Printf("PR had %d changed files\n", hook.PullRequest.ChangedFiles)
 
-	// post metric to Cloudwatch
-	// regular 1 minute resolution metric
+	// post metrics to Cloudwatch
+	// regular 1 minute resolution metric will be aggregated automatically
 	// in the PRStats namespace
-	// Unit is count, this is 1 PR
-	// metrics are count, duration, size (additions +  deletions)
 	repoDim := cloudwatch.Dimension{}
 	repoDim.SetName("repo")
 	repoDim.SetValue(hook.PullRequest.Base.Repo.Name)
@@ -107,9 +108,9 @@ func HandleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 	countDataPoint.SetDimensions(dimensions)
 
 	durationDataPoint := cloudwatch.MetricDatum{}
-	durationDataPoint.SetMetricName("prduration")
-	durationDataPoint.SetUnit("Seconds")
-	durationDataPoint.SetValue(seconds)
+	durationDataPoint.SetMetricName("prdays")
+	durationDataPoint.SetUnit("None")
+	durationDataPoint.SetValue(float64(days))
 	durationDataPoint.SetDimensions(dimensions)
 
 	sizeDataPoint := cloudwatch.MetricDatum{}
