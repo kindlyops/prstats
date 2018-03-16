@@ -1,6 +1,9 @@
 # prstats
 
-this is an AWS serverless app that records PR stats into Cloudwatch Metrics.
+this is an AWS serverless app that records PR stats into Cloudwatch Metrics. The webhook will record metrics for as many repos as you want to configure webhooks for, the repo name is recorded as a metric dimension. A metrics dashboard is automatically defined for the first repo (specify the name as a stack parameter).
+
+![Image of metrics dashboard](demo.png)
+
 
 ## build
 ./buildlambda.sh
