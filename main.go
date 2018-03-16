@@ -43,9 +43,9 @@ func HandleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 		return events.APIGatewayProxyResponse{Body: "Invalid Signature", StatusCode: 400}, nil
 	}
 
-	if request.Headers["X-Github-Event"] != "pull_request" {
+	if request.Headers["X-GitHub-Event"] != "pull_request" {
 		// ignore test webhooks and events that are not PRs
-		fmt.Printf("ignoring X-GitHub-Event %s\n", request.Headers["X-Github-Event"])
+		fmt.Printf("ignoring X-GitHub-Event %s\n", request.Headers["X-GitHub-Event"])
 		return events.APIGatewayProxyResponse{Body: "LOVE, TIME, IDEAS", StatusCode: 200}, nil
 	}
 
