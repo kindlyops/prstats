@@ -6,6 +6,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -32,15 +33,29 @@ type webhook struct {
 	} `json:"pull_request"`
 }
 
-func HandleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	rawToken := os.Getenv("WEBHOOK_SECRET_TOKEN")
-	mac := hmac.New(sha1.New, []byte(rawToken))
-	mac.Write([]byte(request.Body))
+func VerifySignature(token string, signature string, body string) error {
+	mac := hmac.New(sha1.New, []byte(token))
+	mac.Write([]byte(body))
 	expectedMAC := mac.Sum(nil)
 	expectedHubSignature := fmt.Sprintf("sha1=%s", hex.EncodeToString(expectedMAC))
 
-	if request.Headers["X-Hub-Signature"] != expectedHubSignature {
-		return events.APIGatewayProxyResponse{Body: "Invalid Signature", StatusCode: 400}, nil
+	if signature != expectedHubSignature {
+		return errors.New("Signature did not match")
+	}
+	return nil
+}
+
+func Respond(status int, message string) (events.APIGatewayProxyResponse, error) {
+	return events.APIGatewayProxyResponse{Body: message, StatusCode: status}, nil
+}
+
+func HandleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	r := Respond
+	rawToken := os.Getenv("WEBHOOK_SECRET_TOKEN")
+	signature := request.Headers["X-Hub-Signature"]
+	err := VerifySignature(rawToken, signature, request.Body)
+	if err != nil {
+		return r(400, "Invalid Signature")
 	}
 
 	if request.Headers["X-GitHub-Event"] != "pull_request" {
@@ -50,7 +65,7 @@ func HandleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 	}
 
 	hook := webhook{}
-	err := json.Unmarshal([]byte(request.Body), &hook)
+	err = json.Unmarshal([]byte(request.Body), &hook)
 	if err != nil {
 		fmt.Println(err)
 		return events.APIGatewayProxyResponse{Body: "Parse error. Fast asleep and finished with the world.", StatusCode: 400}, nil
