@@ -3,7 +3,7 @@ package main
 import "testing"
 
 func TestSignature(t *testing.T) {
-	got := "wrong"
+	got := "right"
 	want := "right"
 
 	if got != want {

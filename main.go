@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -45,6 +46,27 @@ func VerifySignature(token string, signature string, body string) error {
 	return nil
 }
 
+func IsPullRequest(headers map[string]string) bool {
+	for k, v := range headers {
+		if strings.ToLower(k) == "x-github-event" {
+			if v == "pull_request" {
+				return true
+			}
+			fmt.Printf("ignoring X-GitHub-Event %s\n", v)
+		}
+	}
+	return false
+}
+
+func GetSignature(headers map[string]string) (string, error) {
+	for k, v := range headers {
+		if strings.ToLower(k) == "x-hub-signature" {
+			return v, nil
+		}
+	}
+	return "", errors.New("Didn't find request signature in headers")
+}
+
 func Respond(status int, message string) (events.APIGatewayProxyResponse, error) {
 	return events.APIGatewayProxyResponse{Body: message, StatusCode: status}, nil
 }
@@ -52,29 +74,31 @@ func Respond(status int, message string) (events.APIGatewayProxyResponse, error)
 func HandleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	r := Respond
 	rawToken := os.Getenv("WEBHOOK_SECRET_TOKEN")
-	signature := request.Headers["X-Hub-Signature"]
-	err := VerifySignature(rawToken, signature, request.Body)
+	signature, err := GetSignature(request.Headers)
+	if err != nil {
+		return r(400, "Missing signature")
+	}
+
+	err = VerifySignature(rawToken, signature, request.Body)
 	if err != nil {
 		return r(400, "Invalid Signature")
 	}
 
-	if request.Headers["X-GitHub-Event"] != "pull_request" {
-		// ignore test webhooks and events that are not PRs
-		fmt.Printf("ignoring X-GitHub-Event %s\n", request.Headers["X-GitHub-Event"])
-		return events.APIGatewayProxyResponse{Body: "LOVE, TIME, IDEAS", StatusCode: 200}, nil
+	if !IsPullRequest(request.Headers) {
+		return r(200, "Ignored notification. LOVE, TIME, IDEAS...")
 	}
 
 	hook := webhook{}
 	err = json.Unmarshal([]byte(request.Body), &hook)
 	if err != nil {
 		fmt.Println(err)
-		return events.APIGatewayProxyResponse{Body: "Parse error. Fast asleep and finished with the world.", StatusCode: 400}, nil
+		return r(400, "Parse error. Fast asleep and finished with the world.")
 	}
 
 	if hook.Action != "closed" || hook.PullRequest.ClosedAt == nil {
 		// this PR isn't closed yet, we'll ignore it and only
 		// record stats on PRs as they are closed.
-		return events.APIGatewayProxyResponse{Body: "nothingness haunts being", StatusCode: 200}, nil
+		return r(200, "nothingness haunts being")
 	}
 
 	fmt.Println(hook)
@@ -149,7 +173,7 @@ func HandleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (
 		fmt.Println(err)
 	}
 
-	return events.APIGatewayProxyResponse{Body: "The heart of metaphor is inference.", StatusCode: 200}, nil
+	return r(200, "The heart of metaphor is inference.")
 }
 
 func main() {
