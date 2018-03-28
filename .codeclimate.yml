@@ -11,10 +11,6 @@ plugins:
 
 exclude_patterns:
 - "**/vendor/"
-- "webui/public/"
-- "webui/elm-stuff/"
-- "webui/node_modules/"
-
 
 checks:
   argument-count:
