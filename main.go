@@ -34,8 +34,14 @@ type webhook struct {
 	} `json:"pull_request"`
 }
 
-func VerifySignature(token string, signature string, body string) error {
-	mac := hmac.New(sha1.New, []byte(token))
+// VerifySignature checks the github signature on the HTTP request
+func VerifySignature(headers map[string]string, body string) error {
+	rawToken := os.Getenv("WEBHOOK_SECRET_TOKEN")
+	signature, err := GetSignature(headers)
+	if err != nil {
+		return errors.New("Missing signature")
+	}
+	mac := hmac.New(sha1.New, []byte(rawToken))
 	mac.Write([]byte(body))
 	expectedMAC := mac.Sum(nil)
 	expectedHubSignature := fmt.Sprintf("sha1=%s", hex.EncodeToString(expectedMAC))
@@ -46,6 +52,7 @@ func VerifySignature(token string, signature string, body string) error {
 	return nil
 }
 
+// IsPullRequest filters out non-PR webhooks.
 func IsPullRequest(headers map[string]string) bool {
 	for k, v := range headers {
 		if strings.ToLower(k) == "x-github-event" {
@@ -58,6 +65,7 @@ func IsPullRequest(headers map[string]string) bool {
 	return false
 }
 
+// GetSignature retrieves the Github signature from the headers, ignoring case
 func GetSignature(headers map[string]string) (string, error) {
 	for k, v := range headers {
 		if strings.ToLower(k) == "x-hub-signature" {
@@ -67,38 +75,56 @@ func GetSignature(headers map[string]string) (string, error) {
 	return "", errors.New("Didn't find request signature in headers")
 }
 
+// Respond wraps an API Gateway response to be less verbose.
 func Respond(status int, message string) (events.APIGatewayProxyResponse, error) {
 	return events.APIGatewayProxyResponse{Body: message, StatusCode: status}, nil
 }
 
-func HandleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	r := Respond
-	rawToken := os.Getenv("WEBHOOK_SECRET_TOKEN")
-	signature, err := GetSignature(request.Headers)
-	if err != nil {
-		return r(400, "Missing signature")
-	}
-
-	err = VerifySignature(rawToken, signature, request.Body)
-	if err != nil {
-		return r(400, "Invalid Signature")
-	}
-
-	if !IsPullRequest(request.Headers) {
-		return r(200, "Ignored notification. LOVE, TIME, IDEAS...")
-	}
-
+func decodePayload(headers map[string]string, body string) (events.APIGatewayProxyResponse, webhook, error) {
 	hook := webhook{}
-	err = json.Unmarshal([]byte(request.Body), &hook)
+	err := VerifySignature(headers, body)
+	result := events.APIGatewayProxyResponse{}
+	if err != nil {
+		result.StatusCode = 400
+		result.Body = "Invalid Signature"
+		return result, hook, errors.New("Invalid Signature")
+	}
+
+	if !IsPullRequest(headers) {
+		result.StatusCode = 200
+		result.Body = "Ignored notification. LOVE, TIME, IDEAS..."
+		return result, hook, errors.New("Ignore notification")
+	}
+
+	err = json.Unmarshal([]byte(body), &hook)
 	if err != nil {
 		fmt.Println(err)
-		return r(400, "Parse error. Fast asleep and finished with the world.")
+		result.StatusCode = 400
+		result.Body = "Parse error. Fast asleep and finished with the world."
+		return result, hook, errors.New("JSON parse error")
 	}
 
 	if hook.Action != "closed" || hook.PullRequest.ClosedAt == nil {
 		// this PR isn't closed yet, we'll ignore it and only
 		// record stats on PRs as they are closed.
-		return r(200, "nothingness haunts being")
+		result.StatusCode = 200
+		result.Body = "nothingness haunts being"
+		return result, hook, errors.New("Ignored hook action")
+	}
+	result.StatusCode = 200
+	result.Body = ""
+	return result, hook, nil
+}
+
+// HandleRequest is the main entry point for the lambda processing.
+func HandleRequest(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	r := Respond
+
+	response, hook, err := decodePayload(request.Headers, request.Body)
+	if err != nil {
+		// don't return an error from the lambda handler even if we are returning
+		// an error code in the HTTP response.
+		return response, nil
 	}
 
 	fmt.Println(hook)
