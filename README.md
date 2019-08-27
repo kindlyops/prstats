@@ -43,4 +43,4 @@ the secret to match what you have set in template.yaml.
 * Figure out the security token glitch with cli-driven deploy
 * figure out how to support multiple dashboards
 * extend test coverage, using the AWS SDK interface types
-
+* rewrite with CDK
